@@ -125,8 +125,6 @@ def find_centroids_and_points_within_segmented_fascicles(MASK,name):
 				distance = cv.pointPolygonTest(h, (tmpPoints[j][0], tmpPoints[j][1]), False)
 				if distance >= 0:
 					input_points.append(tmpPoints[j])
-				else:
-					print(distance,tmpPoints[j])
 			i += 1
 	
 #	debug(mask,input_points,name)

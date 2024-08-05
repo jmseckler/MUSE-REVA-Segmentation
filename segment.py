@@ -11,13 +11,14 @@ modelpath = './models/sam_vit_h_4b8939.pth'
 outpath = './data/segment/'
 debugPath = './data/dots/'
 
-contrastFactor = 2.5
+contrastFactor = 1.0
 
 elipse_size = 30
 kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(elipse_size,elipse_size))
 
-lattice_point_spacing = 9
-lattice_percent_spacing = 1 / (lattice_point_spacing + 1)
+lattice_point_spacing = 50
+
+mask_size = 0
 
 
 def find_file_list(masks=False):
@@ -103,35 +104,20 @@ def find_centroids_and_points_within_segmented_fascicles(MASK,name):
 			rect_max.append(np.amax(h,axis=0)[0])
 	
 	i = 0
+	n = len(lattice_points)
 	for h in heirarchy:
 		if h.shape[0] > 50:
-			distance_x = rect_max[i][0] - rect_min[i][0]
-			distance_y = rect_max[i][1] - rect_min[i][1]
-	
-			min_x = means[i][0] - 0.5 * distance_x
-			min_y = means[i][1] - 0.5 * distance_y
-			
-			distance_x = lattice_percent_spacing * distance_x
-			distance_y = lattice_percent_spacing * distance_y
-			tmpPoints = []
-			
-			for x in range(lattice_point_spacing+1):
-				if x > 0:
-					for y in range(lattice_point_spacing+1):
-						if y > 0:
-							tmpPoints.append([int(min_x + x * distance_x),int(min_y + y * distance_y)])
-			n = len(tmpPoints)
 			for j in range(n):
-				distance = cv.pointPolygonTest(h, (tmpPoints[j][0], tmpPoints[j][1]), False)
-				if distance >= 0:
-					input_points.append(tmpPoints[j])
+				distance = cv.pointPolygonTest(h, (lattice_points[j][0], lattice_points[j][1]), True)
+				if distance >= 50:
+#					print(distance)
+					input_points.append(lattice_points[j])
 			i += 1
 	
 #	debug(mask,input_points,name)
 	input_points = np.array(input_points)
 	means = np.array(means)
 	return input_points, means
-	
 
 def debug(img,points,name):
 	image = np.zeros(img.shape)
@@ -170,6 +156,7 @@ def open_image_and_preprocess(path):
 	return img
 
 def segment_out_fasciles(k,MASK):
+	global mask_size
 	path = inpath + f"image_{k}.png"
 	img = open_image_and_preprocess(path)
 	
@@ -185,14 +172,25 @@ def segment_out_fasciles(k,MASK):
 #	print(img.shape)
 #	print(input_points)
 	
+	count = 0
 	for i in range(N):
 		input_point = np.array([input_mean_points[i]])
 		masks, _, _ = predictor.predict(input_point,[1])
 		mask = np.array(masks[0])
 		mask = np.where(mask == False, 255, mask)
 		mask = 255 - mask
-		final = final + mask
 		
+		mask[mask < 200] = 0
+		mask[mask > 1] = 255
+		
+		acount = np.sum(mask)
+		acount = acount / 255
+		if acount <= 1.05 * mask_size or mask_size == 0:
+			final = final + mask
+		if acount > count:
+				count = acount
+#		else:
+#			print(count,input_point)
 	
 	for i in range(n):
 		x = input_points[i][1]
@@ -202,19 +200,54 @@ def segment_out_fasciles(k,MASK):
 			masks, _, _ = predictor.predict(input_point,[1])
 			mask = np.array(masks[0])
 			mask = np.where(mask == False, 255, mask)
+			
 			mask = 255 - mask
-			final = final + mask
+			mask[mask < 200] = 0
+			mask[mask > 1] = 255
+			
+			acount = np.sum(mask)
+			acount = acount / 255
+			if acount > acount:
+				count = acount
+			if acount <= 1.05 * mask_size or mask_size == 0:
+				final = final + mask
+				if acount > count:
+					count = acount
+#			else:
+#				print(count,input_point)
 		elif x >= 0 and y >= 0 and x < final.shape[0] and y < final.shape[1] and final[x][y] > 0:
 			pass
-#			print(x,y)
 		
+	if count > mask_size:
+		mask_size = count
+
+	final[final < 200] = 0
+	final[final > 1] = 255
+
+	
+#	print(count,mask_size)
 	if int(k) < 1000:
 		I = '0' + k
 	else:
 		I = k
+	
 	cv.imwrite(outpath + f"mask_{I}.png",final)
 	final = final.astype('uint8')
 	return final
+
+def calculate_lattice_points(img):
+	x = int(img.shape[1] / lattice_point_spacing)
+	y = int(img.shape[0] / lattice_point_spacing)
+	
+	points = []
+	for i in range(x):
+		if i > 0:
+			for j in range(y):
+				if y > 0:
+					points.append([lattice_point_spacing * i,lattice_point_spacing * j])
+	return points
+	
+	
 
 flist = find_file_list()
 mlist = find_file_list(True)
@@ -222,6 +255,7 @@ mlist = find_file_list(True)
 path = maskpath + 'image_' + mlist[0] + '.png'
 groundTruth = [cv.imread(path,cv.IMREAD_GRAYSCALE)]
 
+lattice_points = calculate_lattice_points(groundTruth[0])
 
 
 for m in tqdm(flist):

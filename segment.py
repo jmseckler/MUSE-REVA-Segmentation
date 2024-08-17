@@ -32,7 +32,7 @@ mask_size = 0
 flags = {}
 flist = []
 mlist = []
-groundTruth = ''
+groundTruth = None
 lattice_points = ''
 PATH_TO_DATA = ''
 
@@ -49,9 +49,8 @@ def initial_data_checks():
 		print("The input path specified appears to not exist, please check your input...")
 		quit()
 	
-	flist = ms.find_file_list(inpath)
-	mlist = ms.find_file_list(maskpath)
-	
+	flist = ms.find_file_list(inpath,thousanth=False)
+	mlist = ms.find_file_list(maskpath,thousanth=False)
 	path = maskpath + 'image_' + mlist[0] + '.png'
 	groundTruth = cv.imread(path,cv.IMREAD_GRAYSCALE)
 	lattice_points = calculate_lattice_points(groundTruth)
@@ -78,6 +77,9 @@ def calculate_lattice_points(img):
 				if y > 0:
 					points.append([lattice_point_spacing * i,lattice_point_spacing * j])
 	return points
+
+def copy(varr):
+	return varr
 
 def run_segmentation(m):
 	global groundTruth
@@ -268,9 +270,11 @@ def segment_out_full_nerve(k,MASK):
 	cv.imwrite(path,cleaned_mask)
 	return cleaned_mask
 
-
+deltas = []
 initial_data_checks()
 for m in tqdm(flist):
+#for m in flist:
+	Old_groundTruth = copy(groundTruth)
 	path = ms.find_mask_path(m,PATH_TO_DATA)
 	if os.path.exists(path):
 		groundTruth= cv.imread(path,cv.IMREAD_GRAYSCALE)
@@ -279,7 +283,11 @@ for m in tqdm(flist):
 		if os.path.exists(path):
 			groundTruth = cv.imread(path,cv.IMREAD_GRAYSCALE)
 		run_segmentation(m)
-
-
-
+	if Old_groundTruth is not None and groundTruth is not None:
+		diff = groundTruth - Old_groundTruth
+		diff = np.mean(diff)
+		deltas.append(diff)
+		if diff > 4:
+			print(f"Error mask required at image number {m} due to segmentation error. The difference is {diff}")
+			break
 
